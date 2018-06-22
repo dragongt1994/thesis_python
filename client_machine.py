@@ -13,10 +13,27 @@ class messageType(Enum):
     CONN_REQT=2
     CONN_CONF=3
     SEND_FILE=4
-    SEND_SUCC=5
+    SEND_REQT=5
+    SEND_CONF=6
 
-
+def message(msg_type,size=None, snum=None, username=None, fname=None, mname=None, lname=None, machine=None ):
+    if msg_type==messageType.CONN_REQT:
+       # msgtype=struct.unpack('i', val[1])
+        dat=struct.pack('I', msg_type.value)+str.encode(valusername)+ str.encode(fname)+ str.encode(mname)+str.encode(lname)
+    elif msg_type==messageType.CONN_CONF:
+        dat=struct.pack('I', msg_type.value)+struct.pack('I', machine)
+        
     
+    elif msg_type==SEND_FILE:
+        dat=struct.pack('I', msg_type.value)+struct.pack('I', size)+struct.pack('I', snum)
+    return dat
+
+def parseMessage(dat):
+    msgtype=struct.unpack('i', dat[0:4])
+    username=str.decode(dat[4:14])
+    fname=str.decode(dat[14:24])
+    mname=str.decode(dat[24:34])
+    lname=str.decode(dat[34:44])
 
 class earthquakeData:
     def __init__(self,npts=0,delta=0,maxv=0,minv=0,val=None, f=None):
@@ -65,16 +82,16 @@ class Packet:
             nmb=math.ceil(l/4096)
             print("nmb"+ str(nmb))
             for ctr in range(0, nmb):
-                pck_temp=self.dat[ctr*4060:(ctr+1)*4060]
+                pck_temp=self.dat[ctr*4056(ctr+1)*4056]
                 tdat=pck_temp
                 l=len(tdat)
-                print("4060-l="+str(4060-l))
-                temp=bytes([0]*(4060-l))
-                temp2=struct.pack('i',ctr)+tdat+temp
+                print("4060-l="+str(4056-l))
+                temp=bytes([0]*(4056-l))
+                temp2=struct.pack('i',ctr)+struct.pack('i',l)+tdat+temp
                 s=md5(temp2)
                 s2=str.encode(s)
                 temp2=temp2+s2
-                
+                print(len(temp2))
                 res=res+[temp2]
             
             self.__pck=res
@@ -86,7 +103,11 @@ class Packet:
             
             
         else:
-            self.__dat=self.__pck[4:4064]
+            self.__dat=[]
+            for tmp in p:
+                l=struct.unpack('i', tmp[4:8] )
+                self.__dat=self.__dat+tmp[(8+l)]
+                
             self.__pck=p
     @property
     def dat(self):
@@ -126,24 +147,26 @@ class clientMachine:
     def askConnection(self, host, port):
     #    self.sck.connect(host, port)
         #username,fname,mname,lname 30 for whole
-        temp=self.__currData.packData()
-        l=len(temp)
- #       nmb=math.ceil(l/4096)
-        #dat=struct.pack('I', messageType.CONN_REQT.value)+str.encode(self.username)+ str.encode(self.fname)+ str.encode(self.mname)+str.encode(self.lname)+struct.pack('I', l)
-      #  p=Packet(dat)
-  #      self.sck.send(p.pck())
-     #   r=self.sck.recv(4096)
- #       temp=Packet(p=r).dat
-    #    if temp==messageType.CONN_CONF:
-        print("l="+str(l))
-        pck_temp=Packet(temp)
-        tot_dat=pck_temp.pck
-        ctr=0
-        for tdat in tot_dat:
-            ftemp=open("pack_dat/pack_"+str(ctr)+".dat", "wb")
-            ftemp.write(tdat)
-            ftemp.close()
-            ctr=ctr+1
+
+        dat=message(messageType.CONN_REQT, self.username,self. fname, self.mname, self.lname)
+        msg=Packet(dat)
+        self.sck.send(msg.pck())
+        r=self.sck.recv(4096)
+        temp=struct.unpack('I', Packet(p=r).dat[0:4])
+        if temp==messageType.CONN_CONF:
+            dat=self.__currData.packData()
+            tot_dat=Packet(dat).pck
+            msg=message(messageType.SEND_REQT, 4096, len(tot_dat))
+            r=self.sck.recv(4096)
+            temp=struct.unpack('I', Packet(p=r).dat[0:4])
+            if temp==messageType.SEND_CONF:
+                ctr=0
+                for tdat in tot_dat:
+                    self.sck.send(tdat)
+#                    ftemp=open("pack_dat/pack_"+str(ctr)+".dat", "wb")
+#                    ftemp.write(tdat)
+#                    ftemp.close()
+#                    ctr=ctr+1
             
             
         
@@ -152,13 +175,50 @@ class clientMachine:
         #ftemp.write(tdat)
         #ft    emp.close()
     #            self.sck.send(tdat.packData)
-            
-            
-            
-            
     
+
+    
+class serverMachine(SocketServer.BaseRequestHandler):
+    def __init__(self, machinename):
+        self.machinename=machinename
+        
+    def handle(self):
+        # self.request is the TCP socket connected to the client
+        
+        data = self.request.recv(4096)
+        tdat=Packet(p=[data]).dat
+        dat=tdat[0]
+        msgtype=struct.unpack('i', dat[0:4])
+        self.username=str.decode(dat[4:14])
+        self.fname=str.decode(dat[14:24])
+        self.mname=str.decode(dat[24:34])
+        self.lname=str.decode(dat[34:44])
+        if msgtype== messageType.CONN_REQT:
+            
+            tmp=message(messageType.CONN_CONF, machine=self.machinename)
+            msg=Packet([tmp])
+            self.request.send(msg.p)
+            data = self.request.recv(4096)
+            tdat=Packet(p=[data]).dat[0]
+            msgtype=struct.unpack('i', tdat[0:4])
+            if msgtype==messageType.SEND_FILE:
+                size=struct.unpack(i, tdat[4:8])
+                snum=struct.unpack(i, tdat[8:12])
+                tmp=message(messageType.SEND_CONF, machine=self.machinename)
+                print("size="+str(size)+" snum="+str(size))
+                temp=[]
+                for ctr in range(0, snum):
+                    dat=self.request.recv(4096)
+                    temp=temp+dat
+                
+        
+        
+        
+        
+        
+        
 a=[]    
-for i in range(0, 2000):
+for i in range(0, 4000):
     a=a+[float(i)]
     
 print(type(messageType.CONN_CONF.value))
